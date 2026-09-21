@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Qualidade do Ar | Dashboard Futurista</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    
+    <style>
+        body {
+            background-color: #060c14;
+            color: #d1e0f0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .cyber-card {
+            background: linear-gradient(135deg, #0b1522 0%, #08101a 100%);
+            border: 1px solid #1a2d42;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            position: relative;
+        }
+        .cyber-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 2px;
+            background: linear-gradient(90deg, transparent, #00d2ff, transparent);
+            border-top-left-radius: 12px; border-top-right-radius: 12px;
+        }
+        .title-header { font-size: 0.85rem; letter-spacing: 1.5px; color: #5a7b9c; text-transform: uppercase; }
+        
+        .progress-dark { background-color: #122030; height: 6px; border-radius: 3px; }
+        .progress-bar-neon { background-color: #00ff88; box-shadow: 0 0 8px #00ff88; transition: width 0.3s ease; }
+
+        .param-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #101e2e; }
+        .param-row:last-child { border-bottom: none; }
+
+        /* Upload Subtil no Topo */
+        .btn-subtle-upload {
+            background: rgba(16, 30, 46, 0.8);
+            border: 1px solid #1a2d42;
+            color: #88a0b8;
+            font-size: 0.8rem;
+            padding: 4px 10px;
+            border-radius: 6px;
+        }
+        .btn-subtle-upload:hover { color: #00d2ff; border-color: #00d2ff; }
+        
+        .select-dark {
+            background-color: #0b1522;
+            color: #00d2ff;
+            border: 1px solid #1a2d42;
+            font-size: 0.8rem;
+            border-radius: 6px;
+            padding: 2px 8px;
+        }
+    </style>
+</head>
+<body class="p-3 p-md-4">
+
+<div class="container-fluid max-width-1400">
+
+    <!-- BARRA SUPERIOR (Com Upload Subtil) -->
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom border-secondary-subtle">
+        <div class="d-flex align-items-center gap-3">
+            <i class="bi bi-wind fs-1 text-info"></i>
+            <div>
+                <div class="d-flex align-items-center gap-2">
+                    <h3 class="fw-bold mb-0 text-white">QUALIDADE DO AR</h3>
+                    
+                    <!-- Upload Discreto no Topo Esquerdo -->
+                    <form action="/" method="POST" enctype="multipart/form-data" class="d-inline-flex align-items-center ms-2">
+                        <input type="file" id="fileInput" name="ficheiro" accept=".csv, .xlsx" class="d-none" onchange="this.form.submit()">
+                        <button type="button" class="btn btn-subtle-upload" onclick="document.getElementById('fileInput').click()">
+                            <i class="bi bi-upload me-1"></i> Carregar Dados
+                        </button>
+                    </form>
+
+                    {% if download_ready %}
+                    <a href="/download/{{ download_ready }}" class="btn btn-subtle-upload text-success"><i class="bi bi-download"></i> Download dados limpos</a>
+                    {% endif %}
+                </div>
+                <!-- <small class="title-header">VISÃO GERAL EM TEMPO REAL</small> -->
+            </div>
+        </div>
+        
+        <div class="d-flex align-items-center gap-3">
+            <span class="badge bg-dark border border-secondary text-info p-2"><i class="bi bi-geo-alt"></i> Beja, Portugal</span>
+            <small class="text-secondary"><i class="bi bi-clock"></i> <span id="data-atual-label">A aguardar dados...</span></small>
+        </div>
+    </div>
+
+    {% if erro %}
+    <div class="alert alert-danger bg-dark border-danger text-danger">{{ erro }}</div>
+    {% endif %}
+
+    <!-- CONTROLO DE NAVEGAÇÃO TEMPORAL -->
+    <div class="cyber-card p-3 mb-3">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+            <button class="btn btn-sm btn-outline-info" onclick="navegarRegisto(-1)"><i class="bi bi-chevron-left"></i> Anterior</button>
+            <span class="title-header text-info"><i class="bi bi-sliders me-1"></i> Navegação Temporal</span>
+            <button class="btn btn-sm btn-outline-info" onclick="navegarRegisto(1)">Seguinte <i class="bi bi-chevron-right"></i></button>
+        </div>
+
+        <!-- Slider de Seleção Rápida -->
+        <input type="range" class="form-range mb-2" id="timelineSlider" min="0" value="0" oninput="selecionarPorSlider(this.value)">
+
+        <!-- LINHA TEMPORAL VISUAL (Gráfico de Linha do Tempo) -->
+        <div id="timeline-chart"></div>
+    </div>
+
+    <!-- GRELHA DO DASHBOARD -->
+    <div class="row g-3 mb-4">
+        
+        <!-- CARD 1: MEDIDOR AQI COM THRESHOLDS -->
+        <div class="col-lg-4 col-md-6">
+            <div class="cyber-card p-3 h-100 text-center">
+                <span class="title-header d-block mb-2">ÍNDICE DE QUALIDADE DO AR</span>
+                <div id="gauge-chart"></div>
+                <p class="small text-secondary px-3 mt-1" id="aqi-descricao">--</p>
+            </div>
+        </div>
+
+        <!-- CARD 2: POLUENTES -->
+        <div class="col-lg-4 col-md-6">
+            <div class="cyber-card p-3 h-100">
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="title-header">POLUENTES</span>
+                    <span class="small text-secondary">µg/m³</span>
+                </div>
+
+                <div class="param-row">
+                    <span><i class="bi bi-grid-fill me-2 text-info"></i>PM2.5</span>
+                    <span class="fw-bold" id="val-pm25">0</span>
+                    <div class="w-50 ms-3"><div class="progress progress-dark"><div class="progress-bar progress-bar-neon" id="bar-pm25"></div></div></div>
+                </div>
+                <div class="param-row">
+                    <span><i class="bi bi-sun me-2 text-info"></i>PM10</span>
+                    <span class="fw-bold" id="val-pm10">0</span>
+                    <div class="w-50 ms-3"><div class="progress progress-dark"><div class="progress-bar progress-bar-neon" id="bar-pm10"></div></div></div>
+                </div>
+                <div class="param-row">
+                    <span><i class="bi bi-cloud me-2 text-info"></i>O₃</span>
+                    <span class="fw-bold" id="val-o3">0</span>
+                    <div class="w-50 ms-3"><div class="progress progress-dark"><div class="progress-bar progress-bar-neon" id="bar-o3"></div></div></div>
+                </div>
+                <div class="param-row">
+                    <span><i class="bi bi-tsunami me-2 text-info"></i>NO₂</span>
+                    <span class="fw-bold" id="val-no2">0</span>
+                    <div class="w-50 ms-3"><div class="progress progress-dark"><div class="progress-bar progress-bar-neon" id="bar-no2"></div></div></div>
+                </div>
+                <div class="param-row">
+                    <span><i class="bi bi-droplet me-2 text-info"></i>SO₂</span>
+                    <span class="fw-bold" id="val-so2">0</span>
+                    <div class="w-50 ms-3"><div class="progress progress-dark"><div class="progress-bar progress-bar-neon" id="bar-so2"></div></div></div>
+                </div>
+                <div class="param-row">
+                    <span><i class="bi bi-funnel me-2 text-info"></i>CO</span>
+                    <span class="fw-bold" id="val-co">0</span>
+                    <div class="w-50 ms-3"><div class="progress progress-dark"><div class="progress-bar progress-bar-neon" id="bar-co"></div></div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CARD 3: EVOLUÇÃO COM SELETOR DE PARTÍCULA -->
+        <div class="col-lg-4 col-md-12">
+            <div class="cyber-card p-3 h-100">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="title-header">EVOLUÇÃO HISTÓRICA</span>
+                    <select id="seletorParticula" class="select-dark" onchange="atualizarGraficoEvolucao()">
+                        {% for p in poluentes %}
+                        <option value="{{ p }}">{{ p }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div id="evolucao-chart"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- METEOROLOGIA -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3 col-6">
+            <div class="cyber-card p-3 d-flex align-items-center gap-3">
+                <i class="bi bi-thermometer-half fs-1 text-danger"></i>
+                <div>
+                    <span class="title-header">TEMPERATURA</span>
+                    <h4 class="fw-bold mb-0 text-white"><span id="val-temp">0</span> °C</h4>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-6">
+            <div class="cyber-card p-3 d-flex align-items-center gap-3">
+                <i class="bi bi-droplet-half fs-1 text-info"></i>
+                <div>
+                    <span class="title-header">HUMIDADE</span>
+                    <h4 class="fw-bold mb-0 text-white"><span id="val-humidade">0</span> %</h4>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-6">
+            <div class="cyber-card p-3 d-flex align-items-center gap-3">
+                <i class="bi bi-wind fs-1 text-info"></i>
+                <div>
+                    <span class="title-header">VENTO</span>
+                    <h4 class="fw-bold mb-0 text-white"><span id="val-vento">0</span> m/s</h4>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-6">
+            <div class="cyber-card p-3 d-flex align-items-center gap-3">
+                <i class="bi bi-speedometer fs-1 text-warning"></i>
+                <div>
+                    <span class="title-header">PRESSÃO</span>
+                    <h4 class="fw-bold mb-0 text-white"><span id="val-pressao">0</span> hPa</h4>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script type="text/javascript">
+    var dadosHistoricos = {{ dados_historicos_json | safe }};
+    var indiceAtual = dadosHistoricos.length - 1;
+
+    const LIMITE_MEDIO = 50;
+    const LIMITE_ALTO = 100;
+
+    function obterEstadoAQI(valor) {
+        if (valor <= LIMITE_MEDIO) {
+            return { cor: '#00ff88', texto: 'BOA', desc: 'A qualidade do ar é satisfatória e representa pouco ou nenhum risco.' };
+        } else if (valor <= LIMITE_ALTO) {
+            return { cor: '#ffcc00', texto: 'MODERADA', desc: 'Qualidade do ar aceitável; preocupação moderada para sensíveis.' };
+        } else {
+            return { cor: '#ff4444', texto: 'ALTO / MÁ', desc: 'Nível elevado de poluição. Pode provocar efeitos na saúde.' };
+        }
+    }
+
+    function renderizarGauge(aqiVal) {
+        var estado = obterEstadoAQI(aqiVal);
+        document.getElementById('aqi-descricao').innerText = estado.desc;
+
+        var gaugeData = [{
+            type: "indicator",
+            mode: "gauge+number",
+            value: aqiVal,
+            number: {
+                suffix: `<br><span style='font-size:0.35em;color:${estado.cor}'>${estado.texto}</span>`,
+                font: { color: estado.cor, size: 45 }
+            },
+            gauge: {
+                axis: { range: [0, 200], tickwidth: 1, tickcolor: "#445566" },
+                bar: { color: estado.cor, thickness: 0.25 },
+                bgcolor: "rgba(0,0,0,0)",
+                borderwidth: 0,
+                steps: [
+                    { range: [0, LIMITE_MEDIO], color: 'rgba(0, 255, 136, 0.15)' },
+                    { range: [LIMITE_MEDIO, LIMITE_ALTO], color: 'rgba(255, 204, 0, 0.15)' },
+                    { range: [LIMITE_ALTO, 200], color: 'rgba(255, 68, 68, 0.15)' }
+                ]
+            }
+        }];
+
+        var layout = {
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            plot_bgcolor: 'rgba(0,0,0,0)',
+            font: { color: "#ffffff" },
+            height: 220,
+            margin: { l: 20, r: 20, t: 20, b: 0 }
+        };
+
+        Plotly.newPlot('gauge-chart', gaugeData, layout, { responsive: true, displayModeBar: false });
+    }
+
+    /* Desenhar a Linha Temporal em baixo dos botões de navegação */
+    function renderizarLinhaTemporal() {
+        if (!dadosHistoricos.length) return;
+
+        var xVals = dadosHistoricos.map(d => d.data);
+        var yVals = dadosHistoricos.map(d => d.aqi);
+
+        var traceLine = {
+            x: xVals,
+            y: yVals,
+            type: 'scatter',
+            mode: 'lines',
+            line: { color: 'rgba(0, 210, 255, 0.4)', width: 2 },
+            hoverinfo: 'none'
+        };
+
+        // Ponto vermelho/destaque indicando a posição atual na linha do tempo
+        var tracePoint = {
+            x: [dadosHistoricos[indiceAtual].data],
+            y: [dadosHistoricos[indiceAtual].aqi],
+            type: 'scatter',
+            mode: 'markers',
+            marker: { color: '#00ff88', size: 10, symbol: 'circle' },
+            hoverinfo: 'none'
+        };
+
+        var layout = {
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            plot_bgcolor: 'rgba(0,0,0,0)',
+            font: { color: "#5a7b9c" },
+            height: 80,
+            margin: { l: 25, r: 15, t: 5, b: 20 },
+            showlegend: false,
+            xaxis: { showgrid: false, zeroline: false },
+            yaxis: { showgrid: false, zeroline: false, visible: false }
+        };
+
+        Plotly.newPlot('timeline-chart', [traceLine, tracePoint], layout, { responsive: true, displayModeBar: false });
+
+        // Permitir clicar diretamente em qualquer ponto do gráfico para navegar para essa data
+        var chart = document.getElementById('timeline-chart');
+        chart.on('plotly_click', function(data){
+            if (data.points && data.points.length > 0) {
+                var pointIndex = data.points[0].pointIndex;
+                indiceAtual = pointIndex;
+                document.getElementById('timelineSlider').value = indiceAtual;
+                atualizarValoresDashboard(indiceAtual);
+            }
+        });
+    }
+
+    function atualizarGraficoEvolucao() {
+        if (!dadosHistoricos.length) return;
+
+        var particula = document.getElementById('seletorParticula').value;
+        var chaveMap = {
+            'PM2.5': 'pm25', 'PM10': 'pm10', 'O₃': 'o3',
+            'NO₂': 'no2', 'SO₂': 'so2', 'CO': 'co'
+        };
+        var chave = chaveMap[particula] || 'pm25';
+
+        var xVals = dadosHistoricos.map(d => d.data);
+        var yVals = dadosHistoricos.map(d => d[chave]);
+
+        var trace = {
+            x: xVals,
+            y: yVals,
+            type: 'scatter',
+            mode: 'lines',
+            line: { color: '#00d2ff', width: 2 }
+        };
+
+        var layout = {
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            plot_bgcolor: 'rgba(0,0,0,0)',
+            font: { color: "#88a0b8" },
+            xaxis: { showgrid: true, gridcolor: '#1a2936' },
+            yaxis: { showgrid: true, gridcolor: '#1a2936' },
+            height: 220,
+            margin: { l: 25, r: 10, t: 10, b: 25 }
+        };
+
+        Plotly.newPlot('evolucao-chart', [trace], layout, { responsive: true, displayModeBar: false });
+    }
+
+    function atualizarValoresDashboard(index) {
+        if (!dadosHistoricos.length) return;
+
+        var d = dadosHistoricos[index];
+        document.getElementById('data-atual-label').innerText = d.data;
+
+        // Atualizar Poluentes
+        document.getElementById('val-pm25').innerText = d.pm25;
+        document.getElementById('bar-pm25').style.width = Math.min(d.pm25 * 3, 100) + '%';
+
+        document.getElementById('val-pm10').innerText = d.pm10;
+        document.getElementById('bar-pm10').style.width = Math.min(d.pm10 * 2, 100) + '%';
+
+        document.getElementById('val-o3').innerText = d.o3;
+        document.getElementById('bar-o3').style.width = Math.min(d.o3, 100) + '%';
+
+        document.getElementById('val-no2').innerText = d.no2;
+        document.getElementById('bar-no2').style.width = Math.min(d.no2, 100) + '%';
+
+        document.getElementById('val-so2').innerText = d.so2;
+        document.getElementById('bar-so2').style.width = Math.min(d.so2 * 5, 100) + '%';
+
+        document.getElementById('val-co').innerText = d.co;
+        document.getElementById('bar-co').style.width = Math.min(d.co * 20, 100) + '%';
+
+        // Meteorologia
+        document.getElementById('val-temp').innerText = d.temp;
+        document.getElementById('val-humidade').innerText = d.humidade;
+        document.getElementById('val-vento').innerText = d.vento;
+        document.getElementById('val-pressao').innerText = d.pressao;
+
+        // Recalcular Medidor AQI e Linha do Tempo
+        renderizarGauge(d.aqi);
+        renderizarLinhaTemporal();
+    }
+
+    function navegarRegisto(delta) {
+        var novoIndex = indiceAtual + delta;
+        if (novoIndex >= 0 && novoIndex < dadosHistoricos.length) {
+            indiceAtual = novoIndex;
+            document.getElementById('timelineSlider').value = indiceAtual;
+            atualizarValoresDashboard(indiceAtual);
+        }
+    }
+
+    function selecionarPorSlider(val) {
+        indiceAtual = parseInt(val);
+        atualizarValoresDashboard(indiceAtual);
+    }
+
+    window.onload = function() {
+        if (dadosHistoricos.length > 0) {
+            var slider = document.getElementById('timelineSlider');
+            slider.max = dadosHistoricos.length - 1;
+            slider.value = indiceAtual;
+
+            atualizarValoresDashboard(indiceAtual);
+            atualizarGraficoEvolucao();
+        }
+    };
+</script>
+
+</body>
+</html>
